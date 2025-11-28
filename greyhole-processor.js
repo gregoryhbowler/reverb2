@@ -1,15 +1,16 @@
 /**
  * Greyhole Reverb AudioWorklet Processor
- * A complex granular reverb based on the SuperCollider Greyhole UGen
+ * Based on diffuser networks with prime-number delays
  * 
  * Parameters:
- * - delayTime: Base delay time (0.0 - 10.0 seconds)
+ * - delayTime: Base delay time multiplier (0.0 - 10.0)
  * - size: Size multiplier for delay times (0.5 - 5.0)
  * - damping: High frequency damping (0.0 - 1.0)
  * - diffusion: Allpass diffusion amount (0.0 - 1.0)
  * - feedback: Feedback amount (0.0 - 1.0)
  * - modDepth: Delay line modulation depth (0.0 - 1.0)
  * - modFreq: Delay line modulation frequency (0.0 - 10.0 Hz)
+ * - mix: Wet/dry mix (0.0 - 1.0)
  */
 
 class GreyholeProcessor extends AudioWorkletProcessor {
@@ -77,77 +78,49 @@ class GreyholeProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     
-    this.sampleRate = options.processorOptions?.sampleRate || sampleRate;
+    this.sampleRate = sampleRate;
     
-    // Maximum delay time: 10 seconds
-    const maxDelay = 10.0;
-    this.maxDelaySize = Math.ceil(maxDelay * this.sampleRate);
+    // Prime numbers for delay line lengths (in samples at 48kHz)
+    // These create non-periodic, dense reverb
+    this.primes = [37, 43, 47, 53, 59, 61, 67, 71];
     
-    // 8 delay lines for a rich, complex reverb
+    // Create delay lines based on prime numbers
     this.numDelays = 8;
     this.delayLines = [];
     this.delayIndices = [];
     
+    // Maximum delay: 2 seconds
+    const maxDelay = Math.ceil(2 * this.sampleRate);
+    
     for (let i = 0; i < this.numDelays; i++) {
-      this.delayLines[i] = new Float32Array(this.maxDelaySize);
+      this.delayLines[i] = new Float32Array(maxDelay);
       this.delayIndices[i] = 0;
     }
     
-    // Allpass filters for diffusion (4 per channel)
-    this.numAllpass = 4;
-    this.allpassBuffers = [];
-    this.allpassIndices = [];
-    
-    // Prime number delays for allpass to avoid periodicity
-    const allpassDelays = [142, 107, 379, 277];
-    
-    for (let i = 0; i < this.numAllpass; i++) {
-      const size = allpassDelays[i];
-      this.allpassBuffers[i] = new Float32Array(size);
-      this.allpassIndices[i] = 0;
-    }
-    
-    // Damping filters (one-pole lowpass) state
+    // Damping filter state (one-pole lowpass)
     this.dampState = new Float32Array(this.numDelays).fill(0);
     
-    // Modulation oscillator phase
-    this.modPhase = 0;
+    // Modulation oscillators (one per delay line for variation)
+    this.modPhases = new Float32Array(this.numDelays).fill(0);
     
-    // Pre-delay buffer for stereo width
-    this.preDelaySize = Math.ceil(0.02 * this.sampleRate); // 20ms
-    this.preDelayBufferL = new Float32Array(this.preDelaySize);
-    this.preDelayBufferR = new Float32Array(this.preDelaySize);
-    this.preDelayIndex = 0;
+    // Initialize mod phases at different starting points
+    for (let i = 0; i < this.numDelays; i++) {
+      this.modPhases[i] = i / this.numDelays;
+    }
     
-    // Delay time ratios for each line (based on Greyhole/JPverb)
-    this.delayRatios = [
-      1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7
+    console.log('Greyhole initialized with prime delays:', this.primes);
+  }
+
+  /**
+   * Rotation matrix for stereo diffusion
+   */
+  rotate(left, right, angle) {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return [
+      left * c - right * s,
+      left * s + right * c
     ];
-  }
-
-  /**
-   * One-pole lowpass filter for damping
-   */
-  dampFilter(input, state, coeff) {
-    state += coeff * (input - state);
-    return state;
-  }
-
-  /**
-   * Allpass filter for diffusion
-   */
-  allpass(input, bufferIndex, gain) {
-    const buffer = this.allpassBuffers[bufferIndex];
-    const index = this.allpassIndices[bufferIndex];
-    const size = buffer.length;
-    
-    const delayed = buffer[index];
-    const output = -input + delayed;
-    buffer[index] = input + (delayed * gain);
-    
-    this.allpassIndices[bufferIndex] = (index + 1) % size;
-    
-    return output;
   }
 
   /**
@@ -156,6 +129,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
   writeDelay(lineIndex, value) {
     const index = this.delayIndices[lineIndex];
     this.delayLines[lineIndex][index] = value;
+    this.delayIndices[lineIndex] = (index + 1) % this.delayLines[lineIndex].length;
   }
 
   /**
@@ -178,123 +152,109 @@ class GreyholeProcessor extends AudioWorkletProcessor {
     return buffer[index1] * (1 - frac) + buffer[index2] * frac;
   }
 
-  /**
-   * Advance delay line write position
-   */
-  advanceDelay(lineIndex) {
-    this.delayIndices[lineIndex] = 
-      (this.delayIndices[lineIndex] + 1) % this.delayLines[lineIndex].length;
-  }
-
   process(inputs, outputs, parameters) {
     const input = inputs[0];
     const output = outputs[0];
     
-    if (!input || !input.length || !output || !output.length) {
+    if (!input || !input[0] || !output || !output[0]) {
       return true;
     }
     
-    const inputL = input[0] || new Float32Array(128);
-    const inputR = input[1] || input[0] || new Float32Array(128);
+    const inputL = input[0];
+    const inputR = input[1] || input[0];
     const outputL = output[0];
     const outputR = output[1] || output[0];
     
     // Get parameters
-    const delayTime = parameters.delayTime;
-    const size = parameters.size;
-    const damping = parameters.damping;
-    const diffusion = parameters.diffusion;
-    const feedback = parameters.feedback;
-    const modDepth = parameters.modDepth;
-    const modFreq = parameters.modFreq;
-    const mix = parameters.mix;
+    const delayTime = parameters.delayTime[0];
+    const size = parameters.size[0];
+    const damping = parameters.damping[0];
+    const diffusion = parameters.diffusion[0];
+    const feedback = parameters.feedback[0];
+    const modDepth = parameters.modDepth[0];
+    const modFreq = parameters.modFreq[0];
+    const mix = parameters.mix[0];
+    
+    // Diffusion gain (cos/sin relationship like Faust)
+    const diffGain = Math.cos(diffusion * Math.PI * 0.5);
+    const diffMix = Math.sin(diffusion * Math.PI * 0.5);
     
     const blockSize = outputL.length;
     
     for (let i = 0; i < blockSize; i++) {
-      // Get parameter values (can be arrays for automation)
-      const dt = delayTime.length > 1 ? delayTime[i] : delayTime[0];
-      const sz = size.length > 1 ? size[i] : size[0];
-      const damp = damping.length > 1 ? damping[i] : damping[0];
-      const diff = diffusion.length > 1 ? diffusion[i] : diffusion[0];
-      const fb = feedback.length > 1 ? feedback[i] : feedback[0];
-      const mDepth = modDepth.length > 1 ? modDepth[i] : modDepth[0];
-      const mFreq = modFreq.length > 1 ? modFreq[i] : modFreq[0];
-      const mixAmt = mix.length > 1 ? mix[i] : mix[0];
-      
-      // Update modulation oscillator
-      const modValue = Math.sin(this.modPhase * 2 * Math.PI);
-      this.modPhase += mFreq / this.sampleRate;
-      if (this.modPhase >= 1.0) this.modPhase -= 1.0;
-      
-      // Input with pre-delay for stereo width
       const inL = inputL[i];
       const inR = inputR[i];
       
-      this.preDelayBufferL[this.preDelayIndex] = inL;
-      this.preDelayBufferR[this.preDelayIndex] = inR;
+      // First diffusion stage - rotate input
+      let [diffL, diffR] = this.rotate(inL, inR, diffusion * 0.3);
       
-      const preDelayedL = this.preDelayBufferL[this.preDelayIndex];
-      const preDelayedR = this.preDelayBufferR[this.preDelayIndex];
+      // Process through delay network
+      let wetL = 0;
+      let wetR = 0;
       
-      this.preDelayIndex = (this.preDelayIndex + 1) % this.preDelaySize;
-      
-      // Diffuse the input through allpass filters
-      let diffusedL = preDelayedL;
-      let diffusedR = preDelayedR;
-      
-      for (let j = 0; j < this.numAllpass; j++) {
-        diffusedL = this.allpass(diffusedL, j, diff * 0.7);
-        diffusedR = this.allpass(diffusedR, j, diff * 0.7);
+      // Process delays in pairs for stereo
+      for (let d = 0; d < this.numDelays; d += 2) {
+        // Update modulation for this delay pair
+        const mod1 = Math.sin(this.modPhases[d] * 2 * Math.PI);
+        const mod2 = Math.sin(this.modPhases[d + 1] * 2 * Math.PI);
+        this.modPhases[d] += modFreq / this.sampleRate;
+        this.modPhases[d + 1] += (modFreq * 1.1) / this.sampleRate; // Slightly different rate
+        if (this.modPhases[d] >= 1.0) this.modPhases[d] -= 1.0;
+        if (this.modPhases[d + 1] >= 1.0) this.modPhases[d + 1] -= 1.0;
+        
+        // Calculate delay times based on primes
+        const baseDelay1 = this.primes[d] * (1 + delayTime * 0.5) * size * 0.5;
+        const baseDelay2 = this.primes[d + 1] * (1 + delayTime * 0.5) * size * 0.5;
+        
+        // Add modulation
+        const modAmt = modDepth * 20; // Up to 20 samples modulation
+        const delay1 = Math.max(1, baseDelay1 + mod1 * modAmt);
+        const delay2 = Math.max(1, baseDelay2 + mod2 * modAmt);
+        
+        // Read from delay lines
+        let delayed1 = this.readDelay(d, delay1);
+        let delayed2 = this.readDelay(d + 1, delay2);
+        
+        // Apply damping (one-pole lowpass)
+        const dampCoeff = 0.99 - (damping * 0.94); // 0.99 to 0.05
+        this.dampState[d] += dampCoeff * (delayed1 - this.dampState[d]);
+        this.dampState[d + 1] += dampCoeff * (delayed2 - this.dampState[d + 1]);
+        delayed1 = this.dampState[d];
+        delayed2 = this.dampState[d + 1];
+        
+        // Diffuser feedback matrix (like Faust implementation)
+        const fb1 = delayed1 * feedback;
+        const fb2 = delayed2 * feedback;
+        
+        // Mix with input (diffusion network structure)
+        const in1 = (d % 4 === 0) ? diffL : diffR;
+        const in2 = (d % 4 === 0) ? diffR : diffL;
+        
+        // Allpass-like structure: out = -in + delayed, write = in + delayed * g
+        const toWrite1 = in1 * diffMix + fb1 * diffGain;
+        const toWrite2 = in2 * diffMix + fb2 * diffGain;
+        
+        this.writeDelay(d, toWrite1);
+        this.writeDelay(d + 1, toWrite2);
+        
+        // Rotate the delayed signals for diffusion
+        const [rot1, rot2] = this.rotate(delayed1, delayed2, (d / this.numDelays) * Math.PI);
+        
+        // Accumulate to output (alternate L/R)
+        wetL += rot1;
+        wetR += rot2;
       }
       
-      // Process delay lines in a feedback network
-      let sumL = 0;
-      let sumR = 0;
+      // Average and scale the wet signal
+      wetL = wetL / (this.numDelays / 2);
+      wetR = wetR / (this.numDelays / 2);
       
-      for (let j = 0; j < this.numDelays; j++) {
-        // Calculate delay time with modulation and size
-        // Base delays in milliseconds (typical reverb range: 10-100ms)
-        // Each delay line gets a different base time to avoid periodicity
-        const baseDelayMs = (10 + (j * 10)) * dt * (sz * 0.3); // Scaled by delayTime and size
-        const baseDelaySamples = (baseDelayMs / 1000) * this.sampleRate;
-        const modAmount = mDepth * 0.01 * this.sampleRate; // Up to 10ms modulation
-        const actualDelay = baseDelaySamples + (modValue * modAmount);
-        
-        // Clamp delay time
-        const clampedDelay = Math.max(1, Math.min(actualDelay, this.maxDelaySize - 1));
-        
-        // Read from delay line
-        let delayed = this.readDelay(j, clampedDelay);
-        
-        // Apply damping (lowpass filter in feedback path)
-        const dampCoeff = 1.0 - (damp * 0.95); // Scale to prevent complete cutoff
-        this.dampState[j] = this.dampFilter(delayed, this.dampState[j], dampCoeff);
-        delayed = this.dampState[j];
-        
-        // Mix input into delay line
-        const input = (j % 2 === 0 ? diffusedL : diffusedR);
-        const feedbackSample = delayed * fb;
-        
-        // Write to delay line
-        this.writeDelay(j, input + feedbackSample);
-        this.advanceDelay(j);
-        
-        // Accumulate output (alternate channels for stereo)
-        if (j % 2 === 0) {
-          sumL += delayed;
-        } else {
-          sumR += delayed;
-        }
-      }
+      // Final rotation for stereo width
+      [wetL, wetR] = this.rotate(wetL, wetR, 0.2);
       
       // Mix dry and wet
-      const wetL = sumL / (this.numDelays / 2);
-      const wetR = sumR / (this.numDelays / 2);
-      
-      // Output with wet/dry mix (0 = dry, 1 = wet)
-      outputL[i] = inL * (1 - mixAmt) + wetL * mixAmt;
-      outputR[i] = inR * (1 - mixAmt) + wetR * mixAmt;
+      outputL[i] = inL * (1 - mix) + wetL * mix * 0.8;
+      outputR[i] = inR * (1 - mix) + wetR * mix * 0.8;
     }
     
     return true;
