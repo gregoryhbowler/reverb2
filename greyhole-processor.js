@@ -154,17 +154,20 @@ class GreyholeProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
-    const input = inputs[0];
     const output = outputs[0];
     
-    if (!input || !input[0] || !output || !output[0]) {
+    if (!output || !output[0]) {
       return true;
     }
     
-    const inputL = input[0];
-    const inputR = input[1] || input[0];
     const outputL = output[0];
     const outputR = output[1] || output[0];
+    const blockSize = outputL.length;
+    
+    // Handle case where input exists but may have no active sources
+    const input = inputs[0];
+    const inputL = (input && input[0]) ? input[0] : new Float32Array(blockSize);
+    const inputR = (input && input[1]) ? input[1] : (input && input[0]) ? input[0] : new Float32Array(blockSize);
     
     // Get parameters
     const delayTime = parameters.delayTime[0];
@@ -180,11 +183,12 @@ class GreyholeProcessor extends AudioWorkletProcessor {
     const diffGain = Math.cos(diffusion * Math.PI * 0.5);
     const diffMix = Math.sin(diffusion * Math.PI * 0.5);
     
-    const blockSize = outputL.length;
+    // Track if we have any output (for debugging)
+    let maxOutput = 0;
     
     for (let i = 0; i < blockSize; i++) {
-      const inL = inputL[i];
-      const inR = inputR[i];
+      const inL = inputL[i] || 0;
+      const inR = inputR[i] || 0;
       
       // First diffusion stage - rotate input
       let [diffL, diffR] = this.rotate(inL, inR, diffusion * 0.3);
@@ -261,6 +265,15 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       // Mix dry and wet
       outputL[i] = inL * (1 - mix) + wetL * mix * 0.8;
       outputR[i] = inR * (1 - mix) + wetR * mix * 0.8;
+      
+      // Track max output for debugging
+      const outAbs = Math.abs(outputL[i]) + Math.abs(outputR[i]);
+      if (outAbs > maxOutput) maxOutput = outAbs;
+    }
+    
+    // Occasional debug logging to see if we're outputting during tail
+    if (Math.random() < 0.001 && maxOutput > 0.0001) {
+      console.log('Reverb tail active, max output:', maxOutput.toFixed(6));
     }
     
     return true;
