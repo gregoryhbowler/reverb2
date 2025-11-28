@@ -254,9 +254,12 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       
       for (let j = 0; j < this.numDelays; j++) {
         // Calculate delay time with modulation and size
-        const baseDelay = dt * this.delayRatios[j] * sz;
-        const modAmount = mDepth * 0.1 * this.sampleRate; // Up to 100ms modulation
-        const actualDelay = baseDelay * this.sampleRate + (modValue * modAmount);
+        // Base delays in milliseconds (typical reverb range: 10-100ms)
+        // Each delay line gets a different base time to avoid periodicity
+        const baseDelayMs = (10 + (j * 10)) * dt * (sz * 0.3); // Scaled by delayTime and size
+        const baseDelaySamples = (baseDelayMs / 1000) * this.sampleRate;
+        const modAmount = mDepth * 0.01 * this.sampleRate; // Up to 10ms modulation
+        const actualDelay = baseDelaySamples + (modValue * modAmount);
         
         // Clamp delay time
         const clampedDelay = Math.max(1, Math.min(actualDelay, this.maxDelaySize - 1));
@@ -270,7 +273,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
         delayed = this.dampState[j];
         
         // Mix input into delay line
-        const input = (j % 2 === 0 ? diffusedL : diffusedR) * 0.5;
+        const input = (j % 2 === 0 ? diffusedL : diffusedR);
         const feedbackSample = delayed * fb;
         
         // Write to delay line
@@ -290,8 +293,8 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       const wetR = sumR / (this.numDelays / 2);
       
       // Output with wet/dry mix (0 = dry, 1 = wet)
-      outputL[i] = inL * (1 - mixAmt) + wetL * mixAmt * 0.5;
-      outputR[i] = inR * (1 - mixAmt) + wetR * mixAmt * 0.5;
+      outputL[i] = inL * (1 - mixAmt) + wetL * mixAmt;
+      outputR[i] = inR * (1 - mixAmt) + wetR * mixAmt;
     }
     
     return true;
