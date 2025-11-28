@@ -90,13 +90,14 @@
 
   <div class="info">
     <strong>Instructions:</strong> Click "Start Audio" to initialize the audio context, 
-    then "Play Test Tone" to hear the reverb. Adjust the parameters to explore different sounds.
+    then click either blip button to hear a short sine wave through the reverb. 
+    The reverb tail will continue after the blip ends. Adjust the parameters to explore different sounds.
   </div>
 
   <div>
     <button id="startBtn">Start Audio</button>
-    <button id="playBtn" disabled>Play Test Tone</button>
-    <button id="stopBtn" disabled>Stop</button>
+    <button id="play440Btn" disabled>Play 440 Hz Blip</button>
+    <button id="play880Btn" disabled>Play 880 Hz Blip</button>
   </div>
 
   <div class="preset-buttons">
@@ -157,7 +158,6 @@
   <script>
     let audioContext = null;
     let greyhole = null;
-    let oscillator = null;
     let gainNode = null;
 
     const presets = {
@@ -220,14 +220,15 @@
         greyhole = new AudioWorkletNode(audioContext, 'greyhole-processor');
         greyhole.connect(audioContext.destination);
         
-        // Create gain node for test tone
+        // Create gain node for test tones
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 0.1;
+        gainNode.gain.value = 0.15;
         gainNode.connect(greyhole);
         
         // Enable controls
         document.getElementById('startBtn').disabled = true;
-        document.getElementById('playBtn').disabled = false;
+        document.getElementById('play440Btn').disabled = false;
+        document.getElementById('play880Btn').disabled = false;
         
         // Setup parameter controls
         setupControls();
@@ -239,28 +240,41 @@
       }
     });
 
-    // Play test tone
-    document.getElementById('playBtn').addEventListener('click', () => {
-      if (oscillator) return;
+    // Play a short blip at given frequency
+    function playBlip(frequency) {
+      const osc = audioContext.createOscillator();
+      const blipGain = audioContext.createGain();
       
-      oscillator = audioContext.createOscillator();
-      oscillator.type = 'sawtooth';
-      oscillator.frequency.value = 220; // A3
-      oscillator.connect(gainNode);
-      oscillator.start();
+      osc.type = 'sine';
+      osc.frequency.value = frequency;
       
-      document.getElementById('playBtn').disabled = true;
-      document.getElementById('stopBtn').disabled = false;
+      // Quick envelope: fade in over 10ms, hold, fade out over 50ms
+      const now = audioContext.currentTime;
+      blipGain.gain.value = 0;
+      blipGain.gain.linearRampToValueAtTime(1, now + 0.01);  // 10ms attack
+      blipGain.gain.setValueAtTime(1, now + 0.45);           // hold until 450ms
+      blipGain.gain.linearRampToValueAtTime(0, now + 0.5);   // 50ms release
+      
+      osc.connect(blipGain);
+      blipGain.connect(gainNode);
+      
+      osc.start(now);
+      osc.stop(now + 0.5);
+      
+      // Clean up after the blip is done
+      osc.onended = () => {
+        blipGain.disconnect();
+      };
+    }
+
+    // Play 440 Hz blip
+    document.getElementById('play440Btn').addEventListener('click', () => {
+      playBlip(440);
     });
 
-    // Stop test tone
-    document.getElementById('stopBtn').addEventListener('click', () => {
-      if (oscillator) {
-        oscillator.stop();
-        oscillator = null;
-        document.getElementById('playBtn').disabled = false;
-        document.getElementById('stopBtn').disabled = true;
-      }
+    // Play 880 Hz blip
+    document.getElementById('play880Btn').addEventListener('click', () => {
+      playBlip(880);
     });
 
     // Setup parameter controls
