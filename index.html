@@ -286,9 +286,12 @@
       osc.start(now);
       osc.stop(now + 0.5);
       
-      // Clean up after the blip is done
+      // IMPORTANT: Don't disconnect until well after reverb tail should be done
+      // Wait 10 seconds before cleaning up to let the reverb tail play out
       osc.onended = () => {
-        blipGain.disconnect();
+        setTimeout(() => {
+          blipGain.disconnect();
+        }, 10000); // 10 second delay
       };
     }
 
