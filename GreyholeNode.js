@@ -205,7 +205,7 @@ class GreyholeNode extends AudioWorkletNode {
     this.size = 3.0;
     this.damping = 0.1;
     this.diffusion = 0.707;
-    this.feedback = 0.2;
+    this.feedback = 0.7;
     this.modDepth = 0.0;
     this.modFreq = 0.1;
     this.mix = 1.0;
