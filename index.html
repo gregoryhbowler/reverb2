@@ -125,6 +125,11 @@
   <div class="control-group">
     <h3>Character</h3>
     <label>
+      <span>Mix (Wet/Dry):</span>
+      <input type="range" id="mix" min="0" max="1" step="0.01" value="1">
+      <span class="value" id="mixValue">1.00</span>
+    </label>
+    <label>
       <span>Damping:</span>
       <input type="range" id="damping" min="0" max="1" step="0.01" value="0.1">
       <span class="value" id="dampingValue">0.10</span>
@@ -136,8 +141,8 @@
     </label>
     <label>
       <span>Feedback:</span>
-      <input type="range" id="feedback" min="0" max="1" step="0.01" value="0.2">
-      <span class="value" id="feedbackValue">0.20</span>
+      <input type="range" id="feedback" min="0" max="1" step="0.01" value="0.5">
+      <span class="value" id="feedbackValue">0.50</span>
     </label>
   </div>
 
@@ -168,7 +173,8 @@
         diffusion: 0.5,
         feedback: 0.15,
         modDepth: 0.0,
-        modFreq: 0.1
+        modFreq: 0.1,
+        mix: 1.0
       },
       hall: {
         delayTime: 4.0,
@@ -177,7 +183,8 @@
         diffusion: 0.8,
         feedback: 0.4,
         modDepth: 0.05,
-        modFreq: 0.2
+        modFreq: 0.2,
+        mix: 1.0
       },
       shimmer: {
         delayTime: 3.0,
@@ -186,7 +193,8 @@
         diffusion: 0.9,
         feedback: 0.5,
         modDepth: 0.15,
-        modFreq: 0.3
+        modFreq: 0.3,
+        mix: 1.0
       },
       granular: {
         delayTime: 1.5,
@@ -195,7 +203,8 @@
         diffusion: 0.6,
         feedback: 0.35,
         modDepth: 0.4,
-        modFreq: 2.0
+        modFreq: 2.0,
+        mix: 1.0
       },
       default: {
         delayTime: 2.0,
@@ -204,7 +213,8 @@
         diffusion: 0.707,
         feedback: 0.2,
         modDepth: 0.0,
-        modFreq: 0.1
+        modFreq: 0.1,
+        mix: 1.0
       }
     };
 
@@ -222,7 +232,7 @@
         
         // Create gain node for test tones
         gainNode = audioContext.createGain();
-        gainNode.gain.value = 0.15;
+        gainNode.gain.value = 0.3; // Increased for more audible reverb
         gainNode.connect(greyhole);
         
         // Enable controls
@@ -279,7 +289,7 @@
 
     // Setup parameter controls
     function setupControls() {
-      const params = ['delayTime', 'size', 'damping', 'diffusion', 'feedback', 'modDepth', 'modFreq'];
+      const params = ['delayTime', 'size', 'damping', 'diffusion', 'feedback', 'modDepth', 'modFreq', 'mix'];
       
       params.forEach(param => {
         const slider = document.getElementById(param);
