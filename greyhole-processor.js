@@ -46,7 +46,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       },
       {
         name: 'feedback',
-        defaultValue: 0.2,
+        defaultValue: 0.7,
         minValue: 0.0,
         maxValue: 1.0,
         automationRate: 'k-rate'
@@ -80,8 +80,8 @@ class GreyholeProcessor extends AudioWorkletProcessor {
     
     this.sampleRate = sampleRate;
     
-    // Prime numbers for delay line lengths (in samples at 48kHz)
-    // These create non-periodic, dense reverb
+    // Prime numbers as millisecond base times
+    // These will be scaled to create delays in the 20-500ms range
     this.primes = [37, 43, 47, 53, 59, 61, 67, 71];
     
     // Create delay lines based on prime numbers
@@ -89,8 +89,9 @@ class GreyholeProcessor extends AudioWorkletProcessor {
     this.delayLines = [];
     this.delayIndices = [];
     
-    // Maximum delay: 2 seconds
-    const maxDelay = Math.ceil(2 * this.sampleRate);
+    // Maximum delay: 4 seconds to be safe
+    const maxDelaySeconds = 4.0;
+    const maxDelay = Math.ceil(maxDelaySeconds * this.sampleRate);
     
     for (let i = 0; i < this.numDelays; i++) {
       this.delayLines[i] = new Float32Array(maxDelay);
@@ -108,7 +109,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       this.modPhases[i] = i / this.numDelays;
     }
     
-    console.log('Greyhole initialized with prime delays:', this.primes);
+    console.log('Greyhole initialized with prime delays (ms):', this.primes);
   }
 
   /**
@@ -202,12 +203,17 @@ class GreyholeProcessor extends AudioWorkletProcessor {
         if (this.modPhases[d] >= 1.0) this.modPhases[d] -= 1.0;
         if (this.modPhases[d + 1] >= 1.0) this.modPhases[d + 1] -= 1.0;
         
-        // Calculate delay times based on primes
-        const baseDelay1 = this.primes[d] * (1 + delayTime * 0.5) * size * 0.5;
-        const baseDelay2 = this.primes[d + 1] * (1 + delayTime * 0.5) * size * 0.5;
+        // Calculate delay times based on primes (treating them as milliseconds)
+        // Base: prime value in ms, scaled by delayTime and size parameters
+        const baseDelayMs1 = this.primes[d] * (0.5 + delayTime * 0.5) * size;
+        const baseDelayMs2 = this.primes[d + 1] * (0.5 + delayTime * 0.5) * size;
+        
+        // Convert milliseconds to samples
+        const baseDelay1 = (baseDelayMs1 / 1000) * this.sampleRate;
+        const baseDelay2 = (baseDelayMs2 / 1000) * this.sampleRate;
         
         // Add modulation
-        const modAmt = modDepth * 20; // Up to 20 samples modulation
+        const modAmt = modDepth * 10 * (this.sampleRate / 1000); // Up to 10ms modulation
         const delay1 = Math.max(1, baseDelay1 + mod1 * modAmt);
         const delay2 = Math.max(1, baseDelay2 + mod2 * modAmt);
         
