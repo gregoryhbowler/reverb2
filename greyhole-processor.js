@@ -63,6 +63,13 @@ class GreyholeProcessor extends AudioWorkletProcessor {
         minValue: 0.0,
         maxValue: 10.0,
         automationRate: 'k-rate'
+      },
+      {
+        name: 'mix',
+        defaultValue: 1.0,
+        minValue: 0.0,
+        maxValue: 1.0,
+        automationRate: 'k-rate'
       }
     ];
   }
@@ -200,6 +207,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
     const feedback = parameters.feedback;
     const modDepth = parameters.modDepth;
     const modFreq = parameters.modFreq;
+    const mix = parameters.mix;
     
     const blockSize = outputL.length;
     
@@ -212,6 +220,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       const fb = feedback.length > 1 ? feedback[i] : feedback[0];
       const mDepth = modDepth.length > 1 ? modDepth[i] : modDepth[0];
       const mFreq = modFreq.length > 1 ? modFreq[i] : modFreq[0];
+      const mixAmt = mix.length > 1 ? mix[i] : mix[0];
       
       // Update modulation oscillator
       const modValue = Math.sin(this.modPhase * 2 * Math.PI);
@@ -280,9 +289,9 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       const wetL = sumL / (this.numDelays / 2);
       const wetR = sumR / (this.numDelays / 2);
       
-      // Output (preserving dry signal)
-      outputL[i] = inL + wetL * 0.5;
-      outputR[i] = inR + wetR * 0.5;
+      // Output with wet/dry mix (0 = dry, 1 = wet)
+      outputL[i] = inL * (1 - mixAmt) + wetL * mixAmt * 0.5;
+      outputR[i] = inR * (1 - mixAmt) + wetR * mixAmt * 0.5;
     }
     
     return true;
