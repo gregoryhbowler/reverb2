@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Greyhole Reverb Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 {
+      color: #ffffff;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #888;
+      margin-bottom: 30px;
+    }
+    .control-group {
+      margin: 20px 0;
+      padding: 15px;
+      background: #2a2a2a;
+      border-radius: 8px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 10px 0;
+      color: #ccc;
+    }
+    input[type="range"] {
+      width: 60%;
+      margin: 0 10px;
+    }
+    .value {
+      min-width: 60px;
+      text-align: right;
+      font-family: monospace;
+      color: #4a9eff;
+    }
+    button {
+      background: #4a9eff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #3a8eef;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .info {
+      background: #2a3a4a;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #4a9eff;
+    }
+    .preset-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .preset-btn {
+      background: #3a3a3a;
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+    .preset-btn:hover {
+      background: #4a4a4a;
+    }
+  </style>
+</head>
+<body>
+  <h1>Greyhole Reverb</h1>
+  <div class="subtitle">Web Audio AudioWorklet Implementation</div>
+
+  <div class="info">
+    <strong>Instructions:</strong> Click "Start Audio" to initialize the audio context, 
+    then "Play Test Tone" to hear the reverb. Adjust the parameters to explore different sounds.
+  </div>
+
+  <div>
+    <button id="startBtn">Start Audio</button>
+    <button id="playBtn" disabled>Play Test Tone</button>
+    <button id="stopBtn" disabled>Stop</button>
+  </div>
+
+  <div class="preset-buttons">
+    <button class="preset-btn" data-preset="short">Short Room</button>
+    <button class="preset-btn" data-preset="hall">Large Hall</button>
+    <button class="preset-btn" data-preset="shimmer">Shimmer</button>
+    <button class="preset-btn" data-preset="granular">Granular</button>
+    <button class="preset-btn" data-preset="default">Reset Defaults</button>
+  </div>
+
+  <div class="control-group">
+    <h3>Delay</h3>
+    <label>
+      <span>Time:</span>
+      <input type="range" id="delayTime" min="0" max="10" step="0.01" value="2">
+      <span class="value" id="delayTimeValue">2.00s</span>
+    </label>
+    <label>
+      <span>Size:</span>
+      <input type="range" id="size" min="0.5" max="5" step="0.01" value="3">
+      <span class="value" id="sizeValue">3.00</span>
+    </label>
+  </div>
+
+  <div class="control-group">
+    <h3>Character</h3>
+    <label>
+      <span>Damping:</span>
+      <input type="range" id="damping" min="0" max="1" step="0.01" value="0.1">
+      <span class="value" id="dampingValue">0.10</span>
+    </label>
+    <label>
+      <span>Diffusion:</span>
+      <input type="range" id="diffusion" min="0" max="1" step="0.01" value="0.707">
+      <span class="value" id="diffusionValue">0.71</span>
+    </label>
+    <label>
+      <span>Feedback:</span>
+      <input type="range" id="feedback" min="0" max="1" step="0.01" value="0.2">
+      <span class="value" id="feedbackValue">0.20</span>
+    </label>
+  </div>
+
+  <div class="control-group">
+    <h3>Modulation</h3>
+    <label>
+      <span>Mod Depth:</span>
+      <input type="range" id="modDepth" min="0" max="1" step="0.01" value="0">
+      <span class="value" id="modDepthValue">0.00</span>
+    </label>
+    <label>
+      <span>Mod Freq:</span>
+      <input type="range" id="modFreq" min="0" max="10" step="0.01" value="0.1">
+      <span class="value" id="modFreqValue">0.10 Hz</span>
+    </label>
+  </div>
+
+  <script>
+    let audioContext = null;
+    let greyhole = null;
+    let oscillator = null;
+    let gainNode = null;
+
+    const presets = {
+      short: {
+        delayTime: 0.5,
+        size: 1.0,
+        damping: 0.3,
+        diffusion: 0.5,
+        feedback: 0.15,
+        modDepth: 0.0,
+        modFreq: 0.1
+      },
+      hall: {
+        delayTime: 4.0,
+        size: 4.0,
+        damping: 0.15,
+        diffusion: 0.8,
+        feedback: 0.4,
+        modDepth: 0.05,
+        modFreq: 0.2
+      },
+      shimmer: {
+        delayTime: 3.0,
+        size: 3.5,
+        damping: 0.05,
+        diffusion: 0.9,
+        feedback: 0.5,
+        modDepth: 0.15,
+        modFreq: 0.3
+      },
+      granular: {
+        delayTime: 1.5,
+        size: 2.0,
+        damping: 0.2,
+        diffusion: 0.6,
+        feedback: 0.35,
+        modDepth: 0.4,
+        modFreq: 2.0
+      },
+      default: {
+        delayTime: 2.0,
+        size: 3.0,
+        damping: 0.1,
+        diffusion: 0.707,
+        feedback: 0.2,
+        modDepth: 0.0,
+        modFreq: 0.1
+      }
+    };
+
+    // Start audio system
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Load the AudioWorklet processor
+        await audioContext.audioWorklet.addModule('greyhole-processor.js');
+        
+        // Create Greyhole node
+        greyhole = new AudioWorkletNode(audioContext, 'greyhole-processor');
+        greyhole.connect(audioContext.destination);
+        
+        // Create gain node for test tone
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.1;
+        gainNode.connect(greyhole);
+        
+        // Enable controls
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('playBtn').disabled = false;
+        
+        // Setup parameter controls
+        setupControls();
+        
+        console.log('Greyhole initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize audio:', error);
+        alert('Failed to initialize audio. Make sure greyhole-processor.js is in the same directory.');
+      }
+    });
+
+    // Play test tone
+    document.getElementById('playBtn').addEventListener('click', () => {
+      if (oscillator) return;
+      
+      oscillator = audioContext.createOscillator();
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.value = 220; // A3
+      oscillator.connect(gainNode);
+      oscillator.start();
+      
+      document.getElementById('playBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+    });
+
+    // Stop test tone
+    document.getElementById('stopBtn').addEventListener('click', () => {
+      if (oscillator) {
+        oscillator.stop();
+        oscillator = null;
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+      }
+    });
+
+    // Setup parameter controls
+    function setupControls() {
+      const params = ['delayTime', 'size', 'damping', 'diffusion', 'feedback', 'modDepth', 'modFreq'];
+      
+      params.forEach(param => {
+        const slider = document.getElementById(param);
+        const valueDisplay = document.getElementById(param + 'Value');
+        
+        slider.addEventListener('input', (e) => {
+          const value = parseFloat(e.target.value);
+          greyhole.parameters.get(param).value = value;
+          updateValueDisplay(param, value);
+        });
+        
+        // Set initial value
+        updateValueDisplay(param, parseFloat(slider.value));
+      });
+      
+      // Preset buttons
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const preset = presets[btn.dataset.preset];
+          if (preset) loadPreset(preset);
+        });
+      });
+    }
+
+    function updateValueDisplay(param, value) {
+      const display = document.getElementById(param + 'Value');
+      if (param === 'delayTime') {
+        display.textContent = value.toFixed(2) + 's';
+      } else if (param === 'modFreq') {
+        display.textContent = value.toFixed(2) + ' Hz';
+      } else {
+        display.textContent = value.toFixed(2);
+      }
+    }
+
+    function loadPreset(preset) {
+      Object.entries(preset).forEach(([param, value]) => {
+        const slider = document.getElementById(param);
+        if (slider) {
+          slider.value = value;
+          greyhole.parameters.get(param).value = value;
+          updateValueDisplay(param, value);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
