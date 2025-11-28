@@ -67,7 +67,7 @@ class GreyholeProcessor extends AudioWorkletProcessor {
       },
       {
         name: 'mix',
-        defaultValue: 1.0,
+        defaultValue: 0.30,
         minValue: 0.0,
         maxValue: 1.0,
         automationRate: 'k-rate'
