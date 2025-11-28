@@ -47,6 +47,7 @@ class GreyholeNode extends AudioWorkletNode {
     if (options.feedback !== undefined) this.feedback = options.feedback;
     if (options.modDepth !== undefined) this.modDepth = options.modDepth;
     if (options.modFreq !== undefined) this.modFreq = options.modFreq;
+    if (options.mix !== undefined) this.mix = options.mix;
   }
 
   /**
@@ -134,6 +135,17 @@ class GreyholeNode extends AudioWorkletNode {
   }
 
   /**
+   * Wet/dry mix (0.0 = dry, 1.0 = wet)
+   */
+  get mix() {
+    return this.parameters.get('mix').value;
+  }
+
+  set mix(value) {
+    this.parameters.get('mix').value = Math.max(0, Math.min(1, value));
+  }
+
+  /**
    * Set all parameters at once
    */
   setParameters(params) {
@@ -144,6 +156,7 @@ class GreyholeNode extends AudioWorkletNode {
     if (params.feedback !== undefined) this.feedback = params.feedback;
     if (params.modDepth !== undefined) this.modDepth = params.modDepth;
     if (params.modFreq !== undefined) this.modFreq = params.modFreq;
+    if (params.mix !== undefined) this.mix = params.mix;
   }
 
   /**
@@ -157,7 +170,8 @@ class GreyholeNode extends AudioWorkletNode {
       diffusion: this.diffusion,
       feedback: this.feedback,
       modDepth: this.modDepth,
-      modFreq: this.modFreq
+      modFreq: this.modFreq,
+      mix: this.mix
     };
   }
 
@@ -194,6 +208,7 @@ class GreyholeNode extends AudioWorkletNode {
     this.feedback = 0.2;
     this.modDepth = 0.0;
     this.modFreq = 0.1;
+    this.mix = 1.0;
   }
 
   /**
