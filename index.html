@@ -230,6 +230,12 @@
         greyhole = new AudioWorkletNode(audioContext, 'greyhole-processor');
         greyhole.connect(audioContext.destination);
         
+        console.log('Greyhole created, parameters:', {
+          delayTime: greyhole.parameters.get('delayTime').value,
+          feedback: greyhole.parameters.get('feedback').value,
+          mix: greyhole.parameters.get('mix').value
+        });
+        
         // Create gain node for test tones
         gainNode = audioContext.createGain();
         gainNode.gain.value = 0.3; // Increased for more audible reverb
@@ -252,6 +258,15 @@
 
     // Play a short blip at given frequency
     function playBlip(frequency) {
+      console.log(`Playing ${frequency}Hz blip`, {
+        currentTime: audioContext.currentTime,
+        reverbParams: {
+          delayTime: greyhole.parameters.get('delayTime').value,
+          feedback: greyhole.parameters.get('feedback').value,
+          mix: greyhole.parameters.get('mix').value
+        }
+      });
+      
       const osc = audioContext.createOscillator();
       const blipGain = audioContext.createGain();
       
